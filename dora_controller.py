@@ -10,7 +10,7 @@ import calc_attitude
 class car_controller:
     def __init__(self):
         self.controll_mode = "initialize"
-        self.car = debug_comm.CarDeviceComm()
+        self.car = debug_comm.CarDevice()
         self.stage = 1
         self.sensor = {
             "tof_f": 100.0,
@@ -61,8 +61,21 @@ class car_controller:
         '''
         センサ情報を取得
         '''
-        self.sensor = self.car.get_sensordata() # 適当。要修正。
-        pass
+        temp = self.car.get_sensordata()
+        self.sensor["tof_f"] = temp["tof_f"]
+        self.sensor["tof_r"] = temp["tof_r"]
+        self.sensor["tof_l"] = temp["tof_l"]
+        self.sensor["tof_b"] = temp["tof_b"]
+        self.sensor["mag_x"] = temp["mag_x"]
+        self.sensor["mag_y"] = temp["mag_y"]
+        self.sensor["mag_z"] = temp["mag_z"]
+        self.sensor["acc_x"] = temp["acc_x"]
+        self.sensor["acc_y"] = temp["acc_y"]
+        self.sensor["acc_z"] = temp["acc_z"]
+        
+        # print(self.sensor["tof_f"])
+        # print(self.sensor["mag_x"])
+        # print(self.sensor.values())
 
     def cal_state(self):
         '''
@@ -117,7 +130,7 @@ class car_controller:
         print("roll:{0:.2f}, pitch:{1:.2f}, yaw:{2:.2f}, dst[u]:{3:.2f}, dst[r]:{4:.2f}, dst[l]:{5:.2f}, dst[d]:{6:.2f}, " \
             .format(
                 self.att["roll"], self.att["pitch"], self.att["yaw"],
-                self.dst["u"], self.dst["r"], self.dst["l"], self.dst["b"],
+                self.dst["u"], self.dst["r"], self.dst["l"], self.dst["d"],
             )
         )
 
