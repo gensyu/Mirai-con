@@ -1,0 +1,4 @@
+{
+    // PythonのPATH
+    "python.pythonPath" : "${workspaceFolder}\venv\Scripts\python.exe"
+}

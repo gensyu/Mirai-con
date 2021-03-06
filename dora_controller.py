@@ -53,7 +53,12 @@ class car_controller:
         
         # 一時保存用。i成分を読み出すときは、att_tmp = [i,0]とする。
         self.att_tmp = np.mat([0.0, 0.0, 0.0]).T 
-        
+
+        # 地磁気センサのキャリブレーションに利用する蓄積用変数
+        self.magx_accum = np.array([])
+        self.magy_accum = np.array([])
+        self.magz_accum = np.array([])
+
     def connect(self):
         pass
 
@@ -147,6 +152,44 @@ class car_controller:
         行動する
         '''
         pass
+
+    def myplot(self, x,y,z):
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+
+        # Figureを追加
+        fig = plt.figure(figsize = (8, 8))
+
+        # 3DAxesを追加
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Axesのタイトルを設定
+        ax.set_title("magnetic vector", size = 20)
+
+        # 軸ラベルを設定
+        ax.set_xlabel("x", size = 14)
+        ax.set_ylabel("y", size = 14)
+        ax.set_zlabel("z", size = 14)
+
+
+        # 曲線を描画
+        ax.plot(x, y, z, color = "red")
+
+        plt.show()
+
+    
+    def calibration(self, n_data = 500):
+        
+        for i in range(n_data):
+            self.get_sensordata()
+            np.append(self.magx_accum, self.sensor["mag_x"])
+            np.append(self.magy_accum, self.sensor["mag_y"])
+            np.append(self.magz_accum, self.sensor["mag_z"])
+
+        myplot(self.magx_accum, self.magy_accum, self.magz_accum)
+
+
+
 
 if __name__ == "__main__":
     dora = car_controller() # ドラえもん

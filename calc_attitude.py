@@ -133,7 +133,7 @@ def calc_attitude(vec_acc, vec_mag):
     attitude = np.mat([roll, pitch, yaw]).T
     return attitude
 
-def testfn():
+def debug_att_calc():
     axis, point = plot3D.init()
 
     t = 0
@@ -175,19 +175,59 @@ def testfn():
 
         print(roll, pitch, yaw, map_to_anguler_domain(t))
 
-if __name__ == "__main__":
-    import plot3D
-    from mpl_toolkits.mplot3d import Axes3D
-    from matplotlib.pyplot import axes
+def myplot(x,y,z):
     import matplotlib.pyplot as plt
-    import sys
-    import time
+    from mpl_toolkits.mplot3d import Axes3D
 
-    try:
-        testfn()
-    except KeyboardInterrupt:
-        print("Program ended by user.\n")
-        sys.exit()
-    except:
-        print("不明なエラー")
-        raise
+    # Figureを追加
+    fig = plt.figure(figsize = (8, 8))
+
+    # 3DAxesを追加
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Axesのタイトルを設定
+    ax.set_title("magnetic vector", size = 20)
+
+    # 軸ラベルを設定
+    ax.set_xlabel("x", size = 14)
+    ax.set_ylabel("y", size = 14)
+    ax.set_zlabel("z", size = 14)
+
+
+    # 曲線を描画
+    ax.plot(x, y, z, color = "red")
+
+    plt.show()
+
+
+if __name__ == "__main__":
+    # try:
+    #     import plot3D
+    #     from mpl_toolkits.mplot3d import Axes3D
+    #     from matplotlib.pyplot import axes
+    #     import matplotlib.pyplot as plt
+    #     import sys
+    #     import time
+    #     debug_att_calc()
+    # except KeyboardInterrupt:
+    #     print("Program ended by user.\n")
+    #     sys.exit()
+    # except:
+    #     print("不明なエラー")
+    #     raise
+
+    # 円周率の定義
+    pi = np.pi
+
+    # パラメータ分割数
+    n = 256
+
+    # パラメータtを作成
+    t = np.linspace(-6*pi, 6*pi, n)
+
+    # らせんの方程式
+    x = np.cos(t)
+    y = np.sin(t)
+    z = t
+
+    myplot(x,y,z)
