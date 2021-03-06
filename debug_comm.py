@@ -118,7 +118,7 @@ class CarDevice:
         """
         self._send_frame(rw=0x0, addr=0x01, wdata=0x01)
 
-    def vsc3_enable(self):
+    def vsc3_disable(self):
         """リモコン操縦無効
         """
         self._send_frame(rw=0x0, addr=0x01, wdata=0x00)
@@ -141,7 +141,7 @@ class CarDevice:
             wdata = 0x0000 + duty_int
         else:
             raise
-        self._sendframe(rw=0x0, addr=0x10, wdata=wdata)
+        self._send_frame(rw=0x0, addr=0x10, wdata=wdata)
 
     def right_motor(self, direcion: int, duty: float):
         """右モータ制御 0x11
@@ -160,7 +160,7 @@ class CarDevice:
             wdata = 0x0000 + duty_int
         else:
             raise
-        self._sendframe(rw=0x0, addr=0x11, wdata=wdata)
+        self._send_frame(rw=0x0, addr=0x11, wdata=wdata)
 
     def change_adm_mode(self, mode: int):
         """Auto Line Trace モード変更 0x20

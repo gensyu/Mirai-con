@@ -59,6 +59,15 @@ class car_controller:
         self.magy_accum = np.array([])
         self.magz_accum = np.array([])
 
+        self.magx_offset = (2629 - 2024) / 2
+        self.magy_offset = (1871 - 2582) / 2
+        self.magz_offset = (2448 - 1834) / 2
+
+        self.roll_offset = 0 # 確定
+        self.pitch_offset = 3.14 # 確定
+        self.yaw_offset = 1.47 # 暫定（安藤さん宅の壁に平行にした設定）
+        
+
     def connect(self):
         pass
 
@@ -71,9 +80,9 @@ class car_controller:
         self.sensor["tof_r"] = temp["tof_r"]
         self.sensor["tof_l"] = temp["tof_l"]
         self.sensor["tof_b"] = temp["tof_b"]
-        self.sensor["mag_x"] = temp["mag_x"]
-        self.sensor["mag_y"] = temp["mag_y"]
-        self.sensor["mag_z"] = temp["mag_z"]
+        self.sensor["mag_x"] = temp["mag_x"] - self.magx_offset
+        self.sensor["mag_y"] = temp["mag_y"] - self.magy_offset
+        self.sensor["mag_z"] = temp["mag_z"] - self.magz_offset
         self.sensor["acc_x"] = temp["acc_x"]
         self.sensor["acc_y"] = temp["acc_y"]
         self.sensor["acc_z"] = temp["acc_z"]
@@ -91,42 +100,47 @@ class car_controller:
         vec_acc = np.mat( [self.sensor["acc_x"], self.sensor["acc_y"], self.sensor["acc_z"]] ).T
         
         self.att_tmp = calc_attitude.calc_attitude(vec_acc, vec_mag)
-        self.att["roll"] = self.att_tmp[0,0] # / math.pi * 180
-        self.att["pitch"] = self.att_tmp[1,0] # / math.pi * 180
-        self.att["yaw"] = self.att_tmp[2,0] # / math.pi * 180
+        self.att["roll"] = self.att_tmp[1,0] - self.roll_offset # / math.pi * 180 # 機体の設置のロールピッチが逆
+        self.att["pitch"] = self.att_tmp[0,0] - self.pitch_offset # / math.pi * 180 # 機体の設置のロールピッチが逆
+        self.att["yaw"] = self.att_tmp[2,0] - self.yaw_offset # / math.pi * 180
         
         
         # TOFセンサが壁に垂直な状態から ±ang [rad]の時のみ壁までの距離を算出する。
-        ang = 20 / 180 * math.pi
-        yaw = self.att["yaw"]
-        if 0 - ang < yaw and yaw < 0 + ang: # 左向きの時
-            self.dst["u"] = math.cos(yaw) * self.sensor["tof_r"]
-            self.dst["r"] = math.cos(yaw) * self.sensor["tof_b"]
-            self.dst["d"] = math.cos(yaw) * self.sensor["tof_l"]
-            self.dst["l"] = math.cos(yaw) * self.sensor["tof_f"]
-        elif 90 - ang < yaw and yaw < 90 + ang: # 下向きの時
-            yaw = yaw - 90
-            self.dst["u"] = math.cos(yaw) * self.sensor["tof_b"]
-            self.dst["r"] = math.cos(yaw) * self.sensor["tof_l"]
-            self.dst["d"] = math.cos(yaw) * self.sensor["tof_f"]
-            self.dst["l"] = math.cos(yaw) * self.sensor["tof_r"]
-        elif - ang < abs(yaw) - 180 and abs(yaw) - 180 < + ang : # 右向きの時
-            yaw = abs(yaw) - 180
-            self.dst["u"] = math.cos(yaw) * self.sensor["tof_l"]
-            self.dst["r"] = math.cos(yaw) * self.sensor["tof_f"]
-            self.dst["d"] = math.cos(yaw) * self.sensor["tof_r"]
-            self.dst["l"] = math.cos(yaw) * self.sensor["tof_b"]
-        elif -90 - ang < yaw and yaw < -90 + ang: # 上向きの時
-            yaw = yaw - (-90)
-            self.dst["u"] = math.cos(yaw) * self.sensor["tof_f"]
-            self.dst["r"] = math.cos(yaw) * self.sensor["tof_r"]
-            self.dst["d"] = math.cos(yaw) * self.sensor["tof_b"]
-            self.dst["l"] = math.cos(yaw) * self.sensor["tof_l"]
+        ang = 30
+        yaw_rad = self.att["yaw"]
+        yaw_deg = np.rad2deg(yaw_rad)
+        if 0 - ang < yaw_deg and yaw_deg < 0 + ang: # 左向きの時
+            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+        elif 90 - ang < yaw_deg and yaw_deg < 90 + ang: # 下向きの時
+            yaw_rad = yaw_rad - np.deg2rad(90)
+            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+        elif - ang < abs(yaw_deg) - 180 and abs(yaw_deg) - 180 < + ang : # 右向きの時
+            yaw_rad = abs(yaw_rad) - np.deg2rad(180)
+            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+        elif -90 - ang < yaw_deg and yaw_deg < -90 + ang: # 上向きの時
+            yaw_rad = yaw_rad - np.deg2rad(-90)
+            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_l"]
         else:
             self.dst["u"] = -1
             self.dst["r"] = -1
             self.dst["d"] = -1
             self.dst["l"] = -1
+
+    def deg(self, rad):
+        return rad/math.pi*180
+
     
     def debug_state(self):
         '''
@@ -134,10 +148,13 @@ class car_controller:
         '''
         print("roll:{0:.2f}, pitch:{1:.2f}, yaw:{2:.2f}, dst[u]:{3:.2f}, dst[r]:{4:.2f}, dst[l]:{5:.2f}, dst[d]:{6:.2f}, " \
             .format(
-                self.att["roll"], self.att["pitch"], self.att["yaw"],
+                np.rad2deg(self.att["roll"]), np.rad2deg(self.att["pitch"]), np.rad2deg(self.att["yaw"]),
                 self.dst["u"], self.dst["r"], self.dst["l"], self.dst["d"],
             )
         )
+
+    def move_(self):
+        
 
 
     
@@ -153,47 +170,50 @@ class car_controller:
         '''
         pass
 
-    def myplot(self, x,y,z):
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-
-        # Figureを追加
-        fig = plt.figure(figsize = (8, 8))
-
-        # 3DAxesを追加
-        ax = fig.add_subplot(111, projection='3d')
-
-        # Axesのタイトルを設定
-        ax.set_title("magnetic vector", size = 20)
-
-        # 軸ラベルを設定
-        ax.set_xlabel("x", size = 14)
-        ax.set_ylabel("y", size = 14)
-        ax.set_zlabel("z", size = 14)
-
-
-        # 曲線を描画
-        ax.plot(x, y, z, color = "red")
-
-        plt.show()
-
     
-    def calibration(self, n_data = 500):
+    def calibration(self, n_data = 2000):
         
         for i in range(n_data):
             self.get_sensordata()
-            np.append(self.magx_accum, self.sensor["mag_x"])
-            np.append(self.magy_accum, self.sensor["mag_y"])
-            np.append(self.magz_accum, self.sensor["mag_z"])
+            self.magx_accum = np.append(self.magx_accum, self.sensor["mag_x"])
+            self.magy_accum = np.append(self.magy_accum, self.sensor["mag_y"])
+            self.magz_accum = np.append(self.magz_accum, self.sensor["mag_z"])
+            print(self.sensor["mag_x"], " ", self.sensor["mag_y"], " ", self.sensor["mag_z"])
 
-        myplot(self.magx_accum, self.magy_accum, self.magz_accum)
+        x_max = max(self.magx_accum)
+        x_min = min(self.magx_accum)
+        y_max = max(self.magy_accum)
+        y_min = min(self.magy_accum)
+        z_max = max(self.magz_accum)
+        z_min = min(self.magz_accum)
 
+        self.magx_offset = (x_max + x_min)/2
+        self.magy_offset = (y_max + y_min)/2
+        self.magz_offset = (z_max + z_min)/2
 
+        print("end")
+
+    def r_motor(self, duty):
+        self.car.right_motor(debug_comm.MOTORDIR.CW, duty)
+
+    def l_motor(self, duty):
+        self.car.left_motor(debug_comm.MOTORDIR.CW, duty)
 
 
 if __name__ == "__main__":
     dora = car_controller() # ドラえもん
     dora.connect()
+    dora.car.vsc3_disable() # リモコン無効
+    # dora.car.vsc3_enable() # リモコン有効
+
+    # dora.calibration()
+
+    # dora.r_motor(1)
+    # dora.l_motor(1)
+
+    # time.sleep(1)
+    # dora.r_motor(0)
+    # dora.l_motor(0)
 
     while True:
         try:
