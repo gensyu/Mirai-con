@@ -46,9 +46,9 @@ class car_controller:
         }
         
         self.att = {
-            "roll": 0.0,
-            "pitch": 0.0,
-            "yaw": 0.0,
+            "roll": 0.0, # [rad]
+            "pitch": 0.0, # [rad]
+            "yaw": 0.0, # [rad]
         }
         
         # 一時保存用。i成分を読み出すときは、att_tmp = [i,0]とする。
@@ -63,9 +63,10 @@ class car_controller:
         self.magy_offset = (1871 - 2582) / 2
         self.magz_offset = (2448 - 1834) / 2
 
-        self.roll_offset = 0 # 確定
-        self.pitch_offset = 3.14 # 確定
-        self.yaw_offset = 1.47 # 暫定（安藤さん宅の壁に平行にした設定）
+        self.roll_offset = 0 # 確定 # [rad]
+        self.pitch_offset = 3.14 # 確定 # [rad]
+        # self.yaw_offset = 1.47 # 暫定（安藤さん宅の壁に平行にした設定） # [rad]
+        self.yaw_offset = 1.47 + np.deg2rad(-84.3) # 暫定（自宅の壁に平行にした設定） # [rad]
         
 
     def connect(self):
@@ -138,41 +139,18 @@ class car_controller:
             self.dst["d"] = -1
             self.dst["l"] = -1
 
-    def deg(self, rad):
-        return rad/math.pi*180
-
-    
     def debug_state(self):
         '''
         機体の姿勢と壁までの距離をコンソールに表示する。デバッグ用。
         '''
-        print("roll:{0:.2f}, pitch:{1:.2f}, yaw:{2:.2f}, dst[u]:{3:.2f}, dst[r]:{4:.2f}, dst[l]:{5:.2f}, dst[d]:{6:.2f}, " \
+        print("roll:{0:+06.1f}, pitch:{1:+06.1f}, yaw:{2:+06.1f}, dst[u]:{3:+07.1f}, dst[r]:{4:+07.1f}, dst[l]:{5:+07.1f}, dst[d]:{6:+07.1f}, " \
             .format(
                 np.rad2deg(self.att["roll"]), np.rad2deg(self.att["pitch"]), np.rad2deg(self.att["yaw"]),
                 self.dst["u"], self.dst["r"], self.dst["l"], self.dst["d"],
             )
         )
-
-    def move_(self):
-        
-
-
-    
-    def dec_strategy(self):
-        '''
-        行動方針を決定する
-        '''
-        pass
-    
-    def action(self):
-        '''
-        行動する
-        '''
-        pass
-
     
     def calibration(self, n_data = 2000):
-        
         for i in range(n_data):
             self.get_sensordata()
             self.magx_accum = np.append(self.magx_accum, self.sensor["mag_x"])
@@ -187,46 +165,140 @@ class car_controller:
         z_max = max(self.magz_accum)
         z_min = min(self.magz_accum)
 
-        self.magx_offset = (x_max + x_min)/2
-        self.magy_offset = (y_max + y_min)/2
-        self.magz_offset = (z_max + z_min)/2
+        # self.magx_offset = (x_max + x_min)/2
+        # self.magy_offset = (y_max + y_min)/2
+        # self.magz_offset = (z_max + z_min)/2
 
-        print("end")
+        print("プログラム中のself.magX_offset, (X=x,y,z) の値を以下の値に書き換えてください")
+        print("x_offset: ", (x_max + x_min)/2)
+        print("y_offset: ", (y_max + y_min)/2)
+        print("z_offset: ", (z_max + z_min)/2)
 
     def r_motor(self, duty):
-        self.car.right_motor(debug_comm.MOTORDIR.CW, duty)
+        '''
+        0 < duty < 1 : 正転
+        -1 < duty < 0 : 逆転
+        '''
+        if duty >= 0:
+            self.car.right_motor(debug_comm.MOTORDIR.CW, duty)
+        elif duty < 0:
+            self.car.right_motor(debug_comm.MOTORDIR.CCW, -duty)
 
     def l_motor(self, duty):
-        self.car.left_motor(debug_comm.MOTORDIR.CW, duty)
+        '''
+        0 < duty < 1 : 正転
+        -1 < duty < 0 : 逆転
+        '''
+        if duty >= 0:
+            self.car.left_motor(debug_comm.MOTORDIR.CW, duty)
+        elif duty < 0:
+            self.car.left_motor(debug_comm.MOTORDIR.CCW, -duty)
+    
+    def stop_motor(self):
+        self.r_motor(0)
+        self.l_motor(0)
 
+    def turn_to(self, yaw):
+        pass
+    
+    def move_with_yaw_ctrl(self, yaw_target):
+        '''
+        input: yaw_target [deg]
+        '''
+        ang_max = math.pi/4 # 45°
+
+        # radに変換
+        yaw_target = np.deg2rad(yaw_target)
+        yaw_measured = self.att["yaw"]
+
+        diff = yaw_measured - yaw_target
+        
+        # ang_max以上はang_maxとして扱い、diffをang_maxで規格化
+        if abs(diff) > ang_max:
+            diff = np.sign(diff) * ang_max
+        diff = diff / ang_max
+
+        if diff >= 0:
+            # 右旋回
+            self.r_motor(1-diff)
+            self.l_motor(1)
+        elif diff < 0:
+            # 左旋回
+            self.r_motor(1)
+            self.l_motor(1+diff)
+
+    def move_along_upside_wall(self, walldist_target):
+        '''
+        "上"の壁沿いに移動する。
+        input: walldist [mm]
+        '''
+        dist_max = 300 # [mm]
+        walldist_measured = self.dst["u"]
+        diff = walldist_measured - walldist_target
+
+        if abs(diff) >= dist_max:
+            diff = dist_max
+        elif abs(diff) < dist_max:
+            diff = diff / dist_max
+        
+        # 壁までの距離に応じて進行方向を制御
+        self.move_with_yaw_ctrl(-20*diff)
+        
+
+    def is_in_range():
+        pass
+    
+    def dec_strategy(self):
+        '''
+        行動方針を決定する
+        '''
+        pass
+    
+    def action(self):
+        '''
+        行動する
+        '''
+        pass
 
 if __name__ == "__main__":
     dora = car_controller() # ドラえもん
     dora.connect()
     dora.car.vsc3_disable() # リモコン無効
     # dora.car.vsc3_enable() # リモコン有効
+    # dora.calibration() # 地磁気センサ校正用関数
+    dora.stop_motor() # モーター停止
 
-    # dora.calibration()
-
-    # dora.r_motor(1)
-    # dora.l_motor(1)
+    # dora.r_motor(0.5)
+    # dora.l_motor(0.5)
 
     # time.sleep(1)
-    # dora.r_motor(0)
-    # dora.l_motor(0)
+    # dora.r_motor(-0.5)
+    # dora.l_motor(-0.5)
 
-    while True:
-        try:
-            dora.get_sensordata()
-            dora.cal_state()
-            dora.debug_state()
-            # dora.dec_strategy()
-            # dora.action()
-            time.sleep(0.1)
-            
-        except KeyboardInterrupt:
-            print("Program ended by user")
-            break
-        
-        except:
-            raise
+    # time.sleep(1)
+    dora.r_motor(0)
+    dora.l_motor(0)
+
+    try:
+        while True:
+            try:
+                dora.get_sensordata()
+                dora.cal_state()
+                dora.debug_state()
+                # dora.dec_strategy()
+                # dora.action()
+                time.sleep(0.1)
+
+                # dora.move_with_yaw_ctrl(90)
+                # dora.move_along_upside_wall(300)
+                
+            except KeyboardInterrupt:
+                print("Program ended by user")
+                break
+    
+    except:
+        dora.stop_motor()
+        raise
+
+    finally:
+        dora.stop_motor()
