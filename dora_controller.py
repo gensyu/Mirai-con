@@ -25,10 +25,10 @@ class car_controller:
             "acc_z": 0.0,
         }
 
-        # ■ walldst (u,r,l,d) [mm]:
+        # ■ walldst (n, e, w, s) [mm]:
         # 各ステージのXY方向の壁までの距離。
-        # Startを右上、Goalを左下になるようにコースを俯瞰したとき
-        # 上方向：u, 右方向：r, 左方向：l, 下方向：d
+        # Startを右上、Goalを左下になるようにコースを俯瞰したときの上方向を北として
+        # 北：n, 東：e, 西：w, 南：s
         #  
         # ■ att (roll, pitch, yaw) [(-π, π)^3]:
         # 機体の姿勢を表すオイラー角。(attitude="姿勢")
@@ -39,10 +39,10 @@ class car_controller:
         # のように機体を回転させた状態を現在の状態としたときのroll, pitch, yawをここでは考える。
         # 回転正方向も右手系に従う。
         self.dst = {
-            "u": 100.0,
-            "r": 100.0,
-            "l": 100.0,
-            "d": 100.0,
+            "n": 100.0,
+            "e": 100.0,
+            "w": 100.0,
+            "s": 100.0,
         }
         
         self.att = {
@@ -59,14 +59,20 @@ class car_controller:
         self.magy_accum = np.array([])
         self.magz_accum = np.array([])
 
-        self.magx_offset = (2629 - 2024) / 2
-        self.magy_offset = (1871 - 2582) / 2
-        self.magz_offset = (2448 - 1834) / 2
+        self.magx_offset = (2629 - 2024) / 2 - 95.5
+        self.magy_offset = (1871 - 2582) / 2 - 92.5
+        self.magz_offset = (2448 - 1834) / 2  + 344.5
 
         self.roll_offset = 0 # 確定 # [rad]
         self.pitch_offset = 3.14 # 確定 # [rad]
         # self.yaw_offset = 1.47 # 暫定（安藤さん宅の壁に平行にした設定） # [rad]
-        self.yaw_offset = 1.47 + np.deg2rad(-84.3) # 暫定（自宅の壁に平行にした設定） # [rad]
+        self.yaw_offset = 1.47 + np.deg2rad(-95.3) # 暫定（自宅の壁に平行にした設定） # [rad]
+
+        # コンパスの補正値
+        self.yaw_north = 0
+        self.yaw_east = -90
+        self.yaw_west = +90
+        self.yaw_south = +180
         
 
     def connect(self):
@@ -111,52 +117,54 @@ class car_controller:
         yaw_rad = self.att["yaw"]
         yaw_deg = np.rad2deg(yaw_rad)
         if 0 - ang < yaw_deg and yaw_deg < 0 + ang: # 左向きの時
-            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_r"]
-            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_b"]
-            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_l"]
-            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_f"]
         elif 90 - ang < yaw_deg and yaw_deg < 90 + ang: # 下向きの時
             yaw_rad = yaw_rad - np.deg2rad(90)
-            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_b"]
-            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_l"]
-            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_f"]
-            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_r"]
         elif - ang < abs(yaw_deg) - 180 and abs(yaw_deg) - 180 < + ang : # 右向きの時
             yaw_rad = abs(yaw_rad) - np.deg2rad(180)
-            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_l"]
-            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_f"]
-            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_r"]
-            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_b"]
         elif -90 - ang < yaw_deg and yaw_deg < -90 + ang: # 上向きの時
             yaw_rad = yaw_rad - np.deg2rad(-90)
-            self.dst["u"] = math.cos(yaw_rad) * self.sensor["tof_f"]
-            self.dst["r"] = math.cos(yaw_rad) * self.sensor["tof_r"]
-            self.dst["d"] = math.cos(yaw_rad) * self.sensor["tof_b"]
-            self.dst["l"] = math.cos(yaw_rad) * self.sensor["tof_l"]
+            self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_f"]
+            self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_r"]
+            self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_b"]
+            self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_l"]
         else:
-            self.dst["u"] = -1
-            self.dst["r"] = -1
-            self.dst["d"] = -1
-            self.dst["l"] = -1
+            self.dst["n"] = -1
+            self.dst["e"] = -1
+            self.dst["s"] = -1
+            self.dst["w"] = -1
 
     def debug_state(self):
         '''
         機体の姿勢と壁までの距離をコンソールに表示する。デバッグ用。
         '''
-        print("roll:{0:+06.1f}, pitch:{1:+06.1f}, yaw:{2:+06.1f}, dst[u]:{3:+07.1f}, dst[r]:{4:+07.1f}, dst[l]:{5:+07.1f}, dst[d]:{6:+07.1f}, " \
+        print("roll:{0:+06.1f}, pitch:{1:+06.1f}, yaw:{2:+06.1f}, dst[n]:{3:+07.1f}, dst[e]:{4:+07.1f}, dst[w]:{5:+07.1f}, dst[s]:{6:+07.1f}, tof_f:{7:+07.1f}, tof_r:{8:+07.1f}, tof_l:{9:+07.1f}, tof_b:{10:+07.1f}" \
             .format(
                 np.rad2deg(self.att["roll"]), np.rad2deg(self.att["pitch"]), np.rad2deg(self.att["yaw"]),
-                self.dst["u"], self.dst["r"], self.dst["l"], self.dst["d"],
+                self.dst["n"], self.dst["e"], self.dst["w"], self.dst["s"],
+                self.sensor["tof_f"], self.sensor["tof_r"], self.sensor["tof_l"], self.sensor["tof_b"],
             )
         )
     
-    def calibration(self, n_data = 2000):
+    def calibration(self, n_data = 3000):
         for i in range(n_data):
             self.get_sensordata()
             self.magx_accum = np.append(self.magx_accum, self.sensor["mag_x"])
             self.magy_accum = np.append(self.magy_accum, self.sensor["mag_y"])
             self.magz_accum = np.append(self.magz_accum, self.sensor["mag_z"])
-            print(self.sensor["mag_x"], " ", self.sensor["mag_y"], " ", self.sensor["mag_z"])
+            print(i, ": ", self.sensor["mag_x"], " ", self.sensor["mag_y"], " ", self.sensor["mag_z"])
+            time.sleep(0.02)
 
         x_max = max(self.magx_accum)
         x_min = min(self.magx_accum)
@@ -201,7 +209,7 @@ class car_controller:
     def turn_to(self, yaw):
         pass
     
-    def move_with_yaw_ctrl(self, yaw_target):
+    def move_with_yaw_ctrl(self, yaw_target, max_duty = 1):
         '''
         input: yaw_target [deg]
         '''
@@ -220,30 +228,48 @@ class car_controller:
 
         if diff >= 0:
             # 右旋回
-            self.r_motor(1-diff)
-            self.l_motor(1)
+            self.r_motor((1-diff) * max_duty)
+            self.l_motor(1 * max_duty)
         elif diff < 0:
             # 左旋回
-            self.r_motor(1)
-            self.l_motor(1+diff)
+            self.r_motor(1 * max_duty)
+            self.l_motor((1+diff) * max_duty)
 
-    def move_along_upside_wall(self, walldist_target):
+    def move_along_wall(self, target_wall, yaw_target, walldist_target, max_duty = 1):
         '''
-        "上"の壁沿いに移動する。
-        input: walldist [mm]
+        壁沿いに移動する。
+        Args:
+            target_wall (str): どの壁に対する距離を制御するか。"n", "e", "w", "s"
+            yaw_target (float): 進行方向のyaw
+            walldist_target (float): 壁までの距離の目標値 [mm]
+            max_duty (float): 最大のduty比　0.0～1.0
         '''
-        dist_max = 300 # [mm]
-        walldist_measured = self.dst["u"]
-        diff = walldist_measured - walldist_target
+        
+        yaw_measured = self.att["yaw"]
+        walldist_measured = self.dst[target_wall]
 
-        if abs(diff) >= dist_max:
-            diff = dist_max
-        elif abs(diff) < dist_max:
-            diff = diff / dist_max
+        diff_yaw = yaw_measured - yaw_target
+        diff_dist = walldist_measured - walldist_target
+        
+        # 角度がつきすぎている or 壁までの距離がエラーの場合、角度制御に切り替える
+        if abs(diff_yaw) > 30 or walldist_measured == -1:
+            self.move_with_yaw_ctrl(yaw_target, max_duty)
+            return 0
+
+
+        dist_max = 100 # [mm]
+        if abs(diff_dist) >= dist_max:
+            diff_dist = np.sign(diff_dist)
+        elif abs(diff_dist) < dist_max:
+            diff_dist = diff_dist / dist_max
         
         # 壁までの距離に応じて進行方向を制御
-        self.move_with_yaw_ctrl(-20*diff)
-        
+        self.move_with_yaw_ctrl(yaw_target -15 * diff_dist, max_duty)
+        print(diff_dist)
+    
+    def stage1(self):
+        self.move_along_wall("n", self.yaw_west, 100, 1)
+
 
     def is_in_range():
         pass
@@ -265,8 +291,9 @@ if __name__ == "__main__":
     dora.connect()
     dora.car.vsc3_disable() # リモコン無効
     # dora.car.vsc3_enable() # リモコン有効
-    # dora.calibration() # 地磁気センサ校正用関数
     dora.stop_motor() # モーター停止
+    # dora.calibration() # 地磁気センサ校正用関数
+    
 
     # dora.r_motor(0.5)
     # dora.l_motor(0.5)
@@ -276,8 +303,8 @@ if __name__ == "__main__":
     # dora.l_motor(-0.5)
 
     # time.sleep(1)
-    dora.r_motor(0)
-    dora.l_motor(0)
+    # dora.r_motor(0)
+    # dora.l_motor(0)
 
     try:
         while True:
@@ -289,8 +316,8 @@ if __name__ == "__main__":
                 # dora.action()
                 time.sleep(0.1)
 
-                # dora.move_with_yaw_ctrl(90)
-                # dora.move_along_upside_wall(300)
+                # dora.move_with_yaw_ctrl(0, speed = 0.5)
+                # dora.move_along_wall(300, 0.3)
                 
             except KeyboardInterrupt:
                 print("Program ended by user")
