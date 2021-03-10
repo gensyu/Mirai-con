@@ -163,6 +163,9 @@ class car_controller:
         )
     
     def calibration(self, n_data = 3000):
+        '''
+        地磁気センサ校正用。各軸のmin-maxの中間の値をオフセットとする。
+        '''
         for i in range(n_data):
             self.get_sensordata()
             self.magx_accum = np.append(self.magx_accum, self.sensor["mag_x"])
@@ -223,7 +226,8 @@ class car_controller:
 
     def turn_to(self, yaw_target, max_duty = 1):
         '''
-        input: yaw_target [deg]
+        目標のヨー角を向くまでその場で旋回
+        Args: yaw_target [deg]
         '''
         ang_max = math.pi/4 # 45°
         yaw_target = np.deg2rad(yaw_target)
@@ -253,6 +257,7 @@ class car_controller:
     
     def move_with_yaw_ctrl(self, yaw_target, max_duty = 1):
         '''
+        目標のヨー角を保つように前方に移動
         input: yaw_target [deg]
         '''
         ang_max = math.pi/4 # 45°
