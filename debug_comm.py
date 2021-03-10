@@ -3,6 +3,11 @@ import time
 import construct as cs
 from enum import Enum
 
+RES_SIZE = 26 #byte
+
+class ResponceError(Exception):
+    pass
+
 class MOTORDIR(Enum):
     CW = 0x01
     CCW = 0x00
@@ -24,14 +29,7 @@ recvfmt = cs.BitStruct(
     "pad" / cs.Padding(1),
     "addr" / cs.BitsInteger(7),
     "rdata" / cs.BitsInteger(16),
-    "line_0" / cs.Flag,
-    "line_1" / cs.Flag,
-    "line_2" / cs.Flag,
-    "line_3" / cs.Flag,
-    "line_4" / cs.Flag,
-    "line_5" / cs.Flag,
-    "line_6" / cs.Flag,
-    "line_7" / cs.Flag,
+    "dammy" / cs.Bytewise(cs.Bytes(1)),
     "tof_f" / cs.BitsInteger(16),
     "tof_r" / cs.BitsInteger(16),
     "tof_l" / cs.BitsInteger(16),
@@ -78,7 +76,17 @@ class CarDevice:
         Returns:
             [dict like]: Responce Data
         """
-        recvframe = self._serial.read_all()
+        cnt=0
+        recvframe = b""
+        while True:
+            recvframe = recvframe + self._serial.read(RES_SIZE)
+            if len(recvframe) >= 26:
+                break
+            cnt = cnt + 1
+            if cnt >= 10:
+                raise ResponceError("can't get UART Responce")
+
+
         # print(recvframe)
         return recvfmt.parse(recvframe)
 
@@ -118,7 +126,7 @@ class CarDevice:
         """
         self._send_frame(rw=0x0, addr=0x01, wdata=0x01)
 
-    def vsc3_disable(self):
+    def vsc3_enable(self):
         """リモコン操縦無効
         """
         self._send_frame(rw=0x0, addr=0x01, wdata=0x00)
@@ -173,7 +181,7 @@ class CarDevice:
             Use TOF sensor: 2
         """
         wdata = [0x00, 0x10, 0x20][mode]
-        self._sendframe(rw=0x0, addr=0x20, wdata=wdata)
+        self._send_frame(rw=0x0, addr=0x20, wdata=wdata)
 
     def linetrace_max_speed(self, duty: float):
         """LineTrace モード変更 0x21
@@ -183,7 +191,7 @@ class CarDevice:
         duty : float
         """
         duty_int = int(duty * (2^8-1))
-        self._sendframe(rw=0x0, addr=0x21, wdata=duty_int)
+        self._send_frame(rw=0x0, addr=0x21, wdata=duty_int)
 
     def change_auto_brake(self, mode: int, distance: int=50):
         """自動ブレーキモード変更 0x22
@@ -199,7 +207,7 @@ class CarDevice:
             wdata = 0x0000
         else:
             wdata = distance
-        self._sendframe(rw=0x0, addr=0x21, wdata=wdata)
+        self._send_frame(rw=0x0, addr=0x21, wdata=wdata)
         
 
     def change_linetrace_threshold(self, pattern: int):
@@ -222,8 +230,8 @@ class CarDevice:
         right_distance [mm]: int
         """
         
-        self._sendframe(rw=0x0, addr=0x24, wdata=left_distance)
-        self._sendframe(rw=0x0, addr=0x25, wdata=right_distance)
+        self._send_frame(rw=0x0, addr=0x24, wdata=left_distance)
+        self._send_frame(rw=0x0, addr=0x25, wdata=right_distance)
 
     def change_cam_angle(self, angle: int=0):
         """カメラアングル変更 0x30
@@ -233,11 +241,4 @@ class CarDevice:
         angle -90 to 90 [deg] : int
         """
         wdata = int(angle * 127/90) + 128
-        self._sendframe(rw=0x0, addr=0x30, wdata=wdata)
-
-if __name__ == "__main__":
-    import time
-    car = CarDevice()
-    while True:
-        print(car.get_sensordata())
-        time.sleep(0.1)
+        self._send_frame(rw=0x0, addr=0x30, wdata=wdata)

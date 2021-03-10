@@ -9,7 +9,14 @@ import calc_attitude
 
 class car_controller:
     def __init__(self):
-        self.controll_mode = "initialize"
+        self.state = {
+            "stage": 1,
+            "turning": False,
+            "break": False,
+            "start_time": 0,
+            "elapsed_time": 0,
+            "emergency": False,
+        }
         self.car = debug_comm.CarDevice()
         self.stage = 1
         self.sensor = {
@@ -69,10 +76,10 @@ class car_controller:
         self.yaw_offset = 1.47 + np.deg2rad(-95.3) # 暫定（自宅の壁に平行にした設定） # [rad]
 
         # コンパスの補正値
-        self.yaw_north = 0
-        self.yaw_east = -90
-        self.yaw_west = +90
-        self.yaw_south = +180
+        self.yaw_north = -8
+        self.yaw_east = -92
+        self.yaw_west = 93
+        self.yaw_south = 176
         
 
     def connect(self):
@@ -206,8 +213,30 @@ class car_controller:
         self.r_motor(0)
         self.l_motor(0)
 
-    def turn_to(self, yaw):
-        pass
+    def turn_to(self, yaw_target, max_duty = 1):
+        '''
+        input: yaw_target [deg]
+        '''
+        ang_max = math.pi/4 # 45°
+        yaw_target = np.deg2rad(yaw_target)
+        yaw_measured = self.att["yaw"]
+        diff = yaw_measured - yaw_target
+        
+        while abs(diff) > np.deg2rad(5):
+            self.update()
+            # ang_max以上はang_maxとして扱い、diffをang_maxで規格化
+            if abs(diff) > ang_max:
+                diff = np.sign(diff) * ang_max
+            diff = diff / ang_max
+
+            if diff >= 0:
+                # 右旋回
+                self.r_motor(0)
+                self.l_motor(1 * max_duty)
+            elif diff < 0:
+                # 左旋回
+                self.r_motor(1 * max_duty)
+                self.l_motor(0)
     
     def move_with_yaw_ctrl(self, yaw_target, max_duty = 1):
         '''
@@ -235,12 +264,13 @@ class car_controller:
             self.r_motor(1 * max_duty)
             self.l_motor((1+diff) * max_duty)
 
-    def move_along_wall(self, target_wall, yaw_target, walldist_target, max_duty = 1):
+    def move_along_wall(self, target_wall, yaw_target, walldist_target, wall_orientation = "r", max_duty = 1):
         '''
         壁沿いに移動する。
         Args:
             target_wall (str): どの壁に対する距離を制御するか。"n", "e", "w", "s"
             yaw_target (float): 進行方向のyaw
+            wall_orientation (str): 制御対象の壁が左右どちらにあるか。"r" or "l"
             walldist_target (float): 壁までの距離の目標値 [mm]
             max_duty (float): 最大のduty比　0.0～1.0
         '''
@@ -264,27 +294,94 @@ class car_controller:
             diff_dist = diff_dist / dist_max
         
         # 壁までの距離に応じて進行方向を制御
-        self.move_with_yaw_ctrl(yaw_target -15 * diff_dist, max_duty)
+        if wall_orientation == "r":
+            self.move_with_yaw_ctrl(yaw_target - 15 * diff_dist, max_duty)
+        elif wall_orientation == "l":
+            self.move_with_yaw_ctrl(yaw_target + 15 * diff_dist, max_duty)
         print(diff_dist)
     
+    def move_to_limit(self, heading = self.yaw_west, guide_wall = "n", wall_orientation = "r", move_limit = 150, guide_dist = 100, time_limit = 100):
+        # 突き当たるまで進む
+        self.state["start_time"] = time.time()
+        while self.dst["w"] == -1 or self.dst["w"] > move_limit:
+            self.update()
+            if self.state["elapsed_time"] > time_limit:
+
+                break
+            self.move_along_wall(guide_wall, heading, guide_dist, 1, wall_orientation=wall_orientation)
+
+    def update(self):
+        self.get_sensordata()
+        self.cal_state()
+        self.state["elapsed_time"] = time.time() - self.state["start_time"]
+        self.debug_state()
+        time.sleep(0.012)
+
     def stage1(self):
-        self.move_along_wall("n", self.yaw_west, 100, 1)
+        # 突き当たるまで進む
+        self.move_to_limit(
+            heading = self.yaw_west,
+            guide_wall = "n",
+            move_limit = 150,
+            guide_dist = 100)
+        
+        # 南に旋回する
+        self.turn_to(self.yaw_south)
 
+        # 突き当たるまで進む
+        self.move_to_limit(
+            heading = self.yaw_south,
+            guide_wall = "w",
+            move_limit = 300,
+            guide_dist = 100)
+        
+        # 東に旋回する
+        self.turn_to(self.yaw_east)
 
-    def is_in_range():
-        pass
+        # ステージクリア
+        self.state["stage"] += 1
     
-    def dec_strategy(self):
-        '''
-        行動方針を決定する
-        '''
+    def stage2(self):
+        # 突き当たるまで進む
+        self.move_to_limit(
+            heading = self.yaw_east,
+            guide_wall = "n",
+            wall_orientation = "l",
+            move_limit = 150,
+            guide_dist = 100,
+            time_limit = 5,
+        )
+        
+        # ステージクリア
+        self.state["stage"] += 1
+    
+    def stage3(self):
+
+    
+    def emergency(self):
         pass
     
     def action(self):
         '''
-        行動する
+        状態変数をもとに行動を選択する
         '''
-        pass
+
+        if self.state["emergency"] == True:
+            self.emergency()
+
+        if self.state["stage"] == 1:
+            self.stage1()
+        elif self.state["stage"] == 2:
+            self.stage2()
+        elif self.state["stage"] == 3:
+            self.stage3()
+        elif self.state["stage"] == 4:
+            self.stage4()
+        elif self.state["stage"] == 5:
+            self.stage5()
+        else:
+            self.state["emergency"] = True
+
 
 if __name__ == "__main__":
     dora = car_controller() # ドラえもん
@@ -294,38 +391,17 @@ if __name__ == "__main__":
     dora.stop_motor() # モーター停止
     # dora.calibration() # 地磁気センサ校正用関数
     
-
-    # dora.r_motor(0.5)
-    # dora.l_motor(0.5)
-
-    # time.sleep(1)
-    # dora.r_motor(-0.5)
-    # dora.l_motor(-0.5)
-
-    # time.sleep(1)
-    # dora.r_motor(0)
-    # dora.l_motor(0)
-
-    try:
+    debug_flag = True
+    if debug_flag == True:
         while True:
             try:
-                dora.get_sensordata()
-                dora.cal_state()
-                dora.debug_state()
-                # dora.dec_strategy()
-                # dora.action()
-                time.sleep(0.1)
+                dora.update()
 
-                # dora.move_with_yaw_ctrl(0, speed = 0.5)
+                # dora.move_with_yaw_ctrl(dora.yaw_west, max_duty = 0.5)
                 # dora.move_along_wall(300, 0.3)
+                # dora.action()
                 
             except KeyboardInterrupt:
                 print("Program ended by user")
+                dora.stop_motor()
                 break
-    
-    except:
-        dora.stop_motor()
-        raise
-
-    finally:
-        dora.stop_motor()
