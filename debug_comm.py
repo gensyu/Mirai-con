@@ -126,7 +126,7 @@ class CarDevice:
         """
         self._send_frame(rw=0x0, addr=0x01, wdata=0x01)
 
-    def vsc3_enable(self):
+    def vsc3_disable(self):
         """リモコン操縦無効
         """
         self._send_frame(rw=0x0, addr=0x01, wdata=0x00)

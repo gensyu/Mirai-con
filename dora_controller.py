@@ -9,16 +9,13 @@ import calc_attitude
 
 class car_controller:
     def __init__(self):
+        self.car = debug_comm.CarDevice()
         self.state = {
             "stage": 1,
-            "turning": False,
-            "break": False,
             "start_time": 0,
             "elapsed_time": 0,
             "emergency": False,
         }
-        self.car = debug_comm.CarDevice()
-        self.stage = 1
         self.sensor = {
             "tof_f": 100.0,
             "tof_r": 100.0,
@@ -70,16 +67,17 @@ class car_controller:
         self.magy_offset = (1871 - 2582) / 2 - 92.5
         self.magz_offset = (2448 - 1834) / 2  + 344.5
 
+        # オイラー角のオフセット
         self.roll_offset = 0 # 確定 # [rad]
         self.pitch_offset = 3.14 # 確定 # [rad]
         # self.yaw_offset = 1.47 # 暫定（安藤さん宅の壁に平行にした設定） # [rad]
-        self.yaw_offset = 1.47 + np.deg2rad(-95.3) # 暫定（自宅の壁に平行にした設定） # [rad]
+        self.yaw_offset = 1.47 + np.deg2rad(-22) # 暫定（自宅の壁に平行にした設定） # [rad]
 
-        # コンパスの補正値
-        self.yaw_north = -8
-        self.yaw_east = -92
-        self.yaw_west = 93
-        self.yaw_south = 176
+        # 東西南北のマスター値。現地で調整 [deg]
+        self.yaw_north = -100
+        self.yaw_east = 180
+        self.yaw_west = 0
+        self.yaw_south = 75
         
 
     def connect(self):
@@ -116,32 +114,32 @@ class car_controller:
         self.att_tmp = calc_attitude.calc_attitude(vec_acc, vec_mag)
         self.att["roll"] = self.att_tmp[1,0] - self.roll_offset # / math.pi * 180 # 機体の設置のロールピッチが逆
         self.att["pitch"] = self.att_tmp[0,0] - self.pitch_offset # / math.pi * 180 # 機体の設置のロールピッチが逆
-        self.att["yaw"] = self.att_tmp[2,0] - self.yaw_offset # / math.pi * 180
+        self.att["yaw"] = calc_attitude.map_to_anguler_domain(self.att_tmp[2,0] - self.yaw_offset) # / math.pi * 180
         
         
         # TOFセンサが壁に垂直な状態から ±ang [rad]の時のみ壁までの距離を算出する。
         ang = 30
         yaw_rad = self.att["yaw"]
         yaw_deg = np.rad2deg(yaw_rad)
-        if 0 - ang < yaw_deg and yaw_deg < 0 + ang: # 左向きの時
+        if self.yaw_west - ang < yaw_deg and yaw_deg < self.yaw_west + ang: # 西向きの時
             self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_r"]
             self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_b"]
             self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_l"]
             self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_f"]
-        elif 90 - ang < yaw_deg and yaw_deg < 90 + ang: # 下向きの時
-            yaw_rad = yaw_rad - np.deg2rad(90)
+        elif self.yaw_south - ang < yaw_deg and yaw_deg < self.yaw_south + ang: # 南向きの時
+            yaw_rad = yaw_rad - np.deg2rad(self.yaw_south)
             self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_b"]
             self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_l"]
             self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_f"]
             self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_r"]
-        elif - ang < abs(yaw_deg) - 180 and abs(yaw_deg) - 180 < + ang : # 右向きの時
-            yaw_rad = abs(yaw_rad) - np.deg2rad(180)
+        elif - ang < abs(yaw_deg) - self.yaw_east and abs(yaw_deg) - self.yaw_east < + ang : # 東向きの時
+            yaw_rad = abs(yaw_rad) - np.deg2rad(self.yaw_east)
             self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_l"]
             self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_f"]
             self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_r"]
             self.dst["w"] = math.cos(yaw_rad) * self.sensor["tof_b"]
-        elif -90 - ang < yaw_deg and yaw_deg < -90 + ang: # 上向きの時
-            yaw_rad = yaw_rad - np.deg2rad(-90)
+        elif self.yaw_north - ang < yaw_deg and yaw_deg < self.yaw_north + ang: # 北向きの時
+            yaw_rad = yaw_rad - np.deg2rad(self.yaw_north)
             self.dst["n"] = math.cos(yaw_rad) * self.sensor["tof_f"]
             self.dst["e"] = math.cos(yaw_rad) * self.sensor["tof_r"]
             self.dst["s"] = math.cos(yaw_rad) * self.sensor["tof_b"]
@@ -213,6 +211,16 @@ class car_controller:
         self.r_motor(0)
         self.l_motor(0)
 
+    def update(self):
+        '''
+        状態更新
+        '''
+        self.get_sensordata()
+        self.cal_state()
+        self.state["elapsed_time"] = time.time() - self.state["start_time"]
+        self.debug_state()
+        time.sleep(0.012)
+
     def turn_to(self, yaw_target, max_duty = 1):
         '''
         input: yaw_target [deg]
@@ -221,9 +229,14 @@ class car_controller:
         yaw_target = np.deg2rad(yaw_target)
         yaw_measured = self.att["yaw"]
         diff = yaw_measured - yaw_target
+        diff = calc_attitude.map_to_anguler_domain(diff)
         
         while abs(diff) > np.deg2rad(5):
+            print(diff)
             self.update()
+            yaw_measured = self.att["yaw"]
+            diff = yaw_measured - yaw_target
+            diff = calc_attitude.map_to_anguler_domain(diff)
             # ang_max以上はang_maxとして扱い、diffをang_maxで規格化
             if abs(diff) > ang_max:
                 diff = np.sign(diff) * ang_max
@@ -232,10 +245,10 @@ class car_controller:
             if diff >= 0:
                 # 右旋回
                 self.r_motor(0)
-                self.l_motor(1 * max_duty)
+                self.l_motor((diff+1)/2 * max_duty)
             elif diff < 0:
                 # 左旋回
-                self.r_motor(1 * max_duty)
+                self.r_motor((-diff+1)/2 * max_duty)
                 self.l_motor(0)
     
     def move_with_yaw_ctrl(self, yaw_target, max_duty = 1):
@@ -249,6 +262,7 @@ class car_controller:
         yaw_measured = self.att["yaw"]
 
         diff = yaw_measured - yaw_target
+        diff = calc_attitude.map_to_anguler_domain(diff)
         
         # ang_max以上はang_maxとして扱い、diffをang_maxで規格化
         if abs(diff) > ang_max:
@@ -279,13 +293,13 @@ class car_controller:
         walldist_measured = self.dst[target_wall]
 
         diff_yaw = yaw_measured - yaw_target
+        diff_yaw = calc_attitude.map_to_anguler_domain(diff_yaw)
         diff_dist = walldist_measured - walldist_target
         
         # 角度がつきすぎている or 壁までの距離がエラーの場合、角度制御に切り替える
         if abs(diff_yaw) > 30 or walldist_measured == -1:
             self.move_with_yaw_ctrl(yaw_target, max_duty)
             return 0
-
 
         dist_max = 100 # [mm]
         if abs(diff_dist) >= dist_max:
@@ -300,29 +314,24 @@ class car_controller:
             self.move_with_yaw_ctrl(yaw_target + 15 * diff_dist, max_duty)
         print(diff_dist)
     
-    def move_to_limit(self, heading = self.yaw_west, guide_wall = "n", wall_orientation = "r", move_limit = 150, guide_dist = 100, time_limit = 100):
+    def move_to_limit(self, heading, guide_wall = "n", wall_orientation = "r", move_limit = 150, guide_dist = 100, time_limit = 100):
         # 突き当たるまで進む
+        # heading = self.yaw_west
         self.state["start_time"] = time.time()
+        print("yes")
         while self.dst["w"] == -1 or self.dst["w"] > move_limit:
+            print("yes")
             self.update()
             if self.state["elapsed_time"] > time_limit:
-
                 break
-            self.move_along_wall(guide_wall, heading, guide_dist, 1, wall_orientation=wall_orientation)
-
-    def update(self):
-        self.get_sensordata()
-        self.cal_state()
-        self.state["elapsed_time"] = time.time() - self.state["start_time"]
-        self.debug_state()
-        time.sleep(0.012)
+            self.move_along_wall(guide_wall, heading, guide_dist, wall_orientation, 1)
 
     def stage1(self):
         # 突き当たるまで進む
         self.move_to_limit(
             heading = self.yaw_west,
             guide_wall = "n",
-            move_limit = 150,
+            move_limit = 350,
             guide_dist = 100)
         
         # 南に旋回する
@@ -332,8 +341,8 @@ class car_controller:
         self.move_to_limit(
             heading = self.yaw_south,
             guide_wall = "w",
-            move_limit = 300,
-            guide_dist = 100)
+            move_limit = 150,
+            guide_dist = 200)
         
         # 東に旋回する
         self.turn_to(self.yaw_east)
@@ -356,6 +365,7 @@ class car_controller:
         self.state["stage"] += 1
     
     def stage3(self):
+        pass
 
     
     def emergency(self):
@@ -390,18 +400,25 @@ if __name__ == "__main__":
     # dora.car.vsc3_enable() # リモコン有効
     dora.stop_motor() # モーター停止
     # dora.calibration() # 地磁気センサ校正用関数
-    
-    debug_flag = True
-    if debug_flag == True:
-        while True:
-            try:
-                dora.update()
+    dora.update()
 
-                # dora.move_with_yaw_ctrl(dora.yaw_west, max_duty = 0.5)
-                # dora.move_along_wall(300, 0.3)
-                # dora.action()
-                
-            except KeyboardInterrupt:
-                print("Program ended by user")
-                dora.stop_motor()
-                break
+    while True:
+        try:
+            # コース攻略
+            dora.action()
+
+            # 壁に沿って移動
+            # dora.update()
+            # dora.move_along_wall("n", dora.yaw_west, 100, wall_orientation = "r", max_duty = 1)
+
+            # 方角指定で移動
+            # dora.update()
+            # dora.move_with_yaw_ctrl(dora.yaw_west, max_duty = 0.5)
+            
+        except KeyboardInterrupt:
+            print("Program ended by user")
+            dora.stop_motor()
+            break
+        
+        except:
+            raise
